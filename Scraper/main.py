@@ -1,9 +1,7 @@
+import sqlite3
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import (
-    ElementClickInterceptedException,
-    NoSuchElementException,
-)
+from selenium.common.exceptions import (ElementClickInterceptedException,NoSuchElementException)
 from bs4 import BeautifulSoup
 import time
 import re
@@ -108,7 +106,43 @@ def fetch_vehicles_by_pagination():
     driver.quit()
     return all_vehicles
 
+def save_to_db(vehicles, db_name="vehicles.db"):
+    conn = sqlite3.connect(db_name)
+    c = conn.cursor()
+
+    # Create table if not exists
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS vehicles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vehicle_name TEXT,
+            number_of_passengers INTEGER,
+            small_luggages TEXT,
+            large_luggages TEXT,
+            has_ac BOOLEAN,
+            transmission TEXT
+        )
+    ''')
+
+    # Insert data
+    for v in vehicles:
+        c.execute('''
+            INSERT INTO vehicles (
+                vehicle_name, number_of_passengers, small_luggages,
+                large_luggages, has_ac, transmission
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            v["Vehicle Name"],
+            int(v["Number of Passengers"]) if v["Number of Passengers"] and v["Number of Passengers"].isdigit() else None,
+            v["Small Luggages"],
+            v["Large Luggages"],
+            1 if v["Has A/C"] else 0,
+            v["Transmission"]
+        ))
+
+    conn.commit()
+    conn.close()
+    print(f"Saved {len(vehicles)} vehicles to database '{db_name}'")
+
 if __name__ == "__main__":
     vehicles = fetch_vehicles_by_pagination()
-    for v in vehicles:
-        print(v)
+    save_to_db(vehicles)
