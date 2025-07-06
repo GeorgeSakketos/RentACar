@@ -53,6 +53,7 @@ async def main():
 
         await page.goto("https://www.avis.gr/")
 
+        # Accept cookies if banner appears
         try:
             await page.wait_for_selector("#consent_prompt_accept", timeout=7000)
             await page.click("#consent_prompt_accept")
@@ -60,6 +61,7 @@ async def main():
         except Exception:
             print("[INFO] Cookie banner not found or already accepted.")
 
+        # Close welcome popup if present
         try:
             await page.wait_for_selector("#welcome-close", timeout=7000)
             await page.click("#welcome-close")
@@ -67,7 +69,7 @@ async def main():
         except Exception:
             print("[INFO] 'Θέλω Κράτηση' popup not found or already closed.")
 
-        # Clear and type pickup location slowly to trigger autocomplete dropdown
+        # Fill pickup location with slow typing to trigger autocomplete
         await page.click("#hire-search")
         await page.fill("#hire-search", "")
         await page.type("#hire-search", PICKUP_LOCATION, delay=100)
@@ -75,7 +77,7 @@ async def main():
         # Wait for autocomplete options and pause 1 second before clicking first option
         try:
             await page.wait_for_selector("button.booking-widget__results__link", timeout=5000)
-            await page.wait_for_timeout(1000)  # <-- Added 1 second wait here
+            await page.wait_for_timeout(1000)
             first_option = await page.query_selector("button.booking-widget__results__link")
             if first_option:
                 await first_option.click()
@@ -92,10 +94,41 @@ async def main():
         await fill_time(page, "#time-from-display", PICKUP_TIME)
         print("[INFO] Pickup date/time set.")
 
-        # Submit form
-        await page.click("button.standard-form__submit[type='submit']")
-        print("[INFO] Form submitted. Waiting for results...")
+        # Submit form with refined selector and multiple fallback click methods
+        try:
+            submit_selector = 'button.standard-form__submit:has-text("ΒΡΕΙΤΕ ΑΥΤΟΚΙΝΗΤΟ")'
+            await page.wait_for_selector(submit_selector, state="visible", timeout=7000)
+            button = await page.query_selector(submit_selector)
 
+            if not button:
+                print("[ERROR] Submit button with expected text not found.")
+            else:
+                is_disabled = await button.get_attribute("disabled")
+                if is_disabled:
+                    print("[WARN] Submit button is disabled, cannot click.")
+                else:
+                    await button.scroll_into_view_if_needed()
+                    try:
+                        await page.dispatch_event(submit_selector, "click")
+                        print("[INFO] Form submitted with dispatch_event click.")
+                    except Exception as e:
+                        print(f"[WARN] dispatch_event click failed: {e}")
+                        try:
+                            await page.eval_on_selector(submit_selector, "button => button.click()")
+                            print("[INFO] Form submitted with JS click.")
+                        except Exception as e2:
+                            print(f"[WARN] JS click failed: {e2}")
+                            try:
+                                await button.focus()
+                                await page.keyboard.press("Enter")
+                                print("[INFO] Form submitted with Enter key.")
+                            except Exception as e3:
+                                print(f"[ERROR] Keyboard Enter failed: {e3}")
+                                print("[ERROR] Failed to submit the form by any method.")
+        except Exception as e:
+            print(f"[ERROR] Submit button not found or other error: {e}")
+
+        # Wait for search results
         try:
             await page.wait_for_selector(".vehicle-card", timeout=20000)
             cars = await page.query_selector_all(".vehicle-card")
