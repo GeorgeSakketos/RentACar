@@ -3,8 +3,8 @@ from playwright.async_api import async_playwright
 
 # ---- CONFIG ----
 PICKUP_LOCATION = "Athens Airport"
-PICKUP_DATE = "07/07/2025"    # Format DD/MM/YYYY
-PICKUP_TIME = "13:30"          # Must match exactly one of the dropdown times
+PICKUP_DATE = "07/07/2025"
+PICKUP_TIME = "13:30"
 DROPOFF_DATE = "12/07/2025"
 DROPOFF_TIME = "10:00"
 
@@ -14,27 +14,26 @@ async def select_date(page, date_selector, date_str):
     except ValueError:
         raise ValueError("Date must be in 'DD/MM/YYYY' format")
 
-    # Open the date picker
+    # Click to open calendar
     await page.click(date_selector)
+    print(f"[INFO] Clicked {date_selector} to open calendar.")
 
-    # Wait for year selector to appear
-    await page.wait_for_selector(".pika-select-year")
+    # Wait for the calendar to be visible — this avoids the issue with invisible elements
+    await page.wait_for_selector(".pika-single:visible", timeout=5000)
+    print("[INFO] Calendar is visible.")
 
     # Select year
-    await page.select_option(".pika-select-year", str(year))
+    await page.select_option(".pika-single:visible .pika-select-year", str(year))
+    await page.select_option(".pika-single:visible .pika-select-month", str(month - 1))
 
-    # Select month (0-based index)
-    await page.select_option(".pika-select-month", str(month - 1))
-
-    # Wait for day buttons to appear
+    # Wait for correct day button
     day_selector = (
-        f'button.pika-button.pika-day[data-pika-year="{year}"]'
+        f'.pika-single:visible button.pika-button.pika-day[data-pika-year="{year}"]'
         f'[data-pika-month="{month - 1}"][data-pika-day="{day}"]'
     )
-    await page.wait_for_selector(day_selector)
-
-    # Click the day button
+    await page.wait_for_selector(day_selector, timeout=5000)
     await page.click(day_selector)
+    print(f"[INFO] Selected date {date_str}.")
 
 async def fill_time(page, time_selector, time_str):
     await page.wait_for_selector(time_selector, state="visible", timeout=7000)
@@ -53,82 +52,54 @@ async def main():
 
         await page.goto("https://www.avis.gr/")
 
-        # Accept cookies if banner appears
         try:
-            await page.wait_for_selector("#consent_prompt_accept", timeout=7000)
-            await page.click("#consent_prompt_accept")
+            await page.click("#consent_prompt_accept", timeout=7000)
             print("[INFO] Cookie accepted.")
-        except Exception:
-            print("[INFO] Cookie banner not found or already accepted.")
+        except:
+            print("[INFO] Cookie banner skipped.")
 
-        # Close welcome popup if present
         try:
-            await page.wait_for_selector("#welcome-close", timeout=7000)
-            await page.click("#welcome-close")
-            print("[INFO] 'Θέλω Κράτηση' popup closed.")
-        except Exception:
-            print("[INFO] 'Θέλω Κράτηση' popup not found or already closed.")
+            await page.click("#welcome-close", timeout=7000)
+            print("[INFO] Welcome popup closed.")
+        except:
+            print("[INFO] Welcome popup skipped.")
 
-        # Fill pickup location with slow typing to trigger autocomplete
+        # Pickup location autocomplete
         await page.click("#hire-search")
         await page.fill("#hire-search", "")
         await page.type("#hire-search", PICKUP_LOCATION, delay=100)
 
-        # Wait for autocomplete options and pause 1 second before clicking first option
         try:
             await page.wait_for_selector("button.booking-widget__results__link", timeout=5000)
             await page.wait_for_timeout(1000)
             first_option = await page.query_selector("button.booking-widget__results__link")
             if first_option:
                 await first_option.click()
-                print("[INFO] Pickup location set by selecting first autocomplete suggestion.")
+                print("[INFO] Pickup location selected.")
             else:
-                print("[WARN] No autocomplete options found, pressing Enter as fallback.")
                 await page.keyboard.press("Enter")
-        except Exception:
-            print("[WARN] Autocomplete options did not appear, pressing Enter as fallback.")
+        except:
             await page.keyboard.press("Enter")
 
-        # Set pickup date and time
+        # Pickup date and time
         await select_date(page, "#date-from-display", PICKUP_DATE)
         await fill_time(page, "#time-from-display", PICKUP_TIME)
         print("[INFO] Pickup date/time set.")
 
-        # Submit form with refined selector and multiple fallback click methods
+        # Drop-off date and time
+        await select_date(page, "#date-to-display", DROPOFF_DATE)
+        await fill_time(page, "#time-to-display", DROPOFF_TIME)
+        print("[INFO] Drop-off date/time set.")
+
+        # Submit button
         try:
-            submit_selector = 'button.standard-form__submit:has-text("ΒΡΕΙΤΕ ΑΥΤΟΚΙΝΗΤΟ")'
-            await page.wait_for_selector(submit_selector, state="visible", timeout=7000)
-            button = await page.query_selector(submit_selector)
-
-            if not button:
-                print("[ERROR] Submit button with expected text not found.")
-            else:
-                is_disabled = await button.get_attribute("disabled")
-                if is_disabled:
-                    print("[WARN] Submit button is disabled, cannot click.")
-                else:
-                    await button.scroll_into_view_if_needed()
-                    try:
-                        await page.dispatch_event(submit_selector, "click")
-                        print("[INFO] Form submitted with dispatch_event click.")
-                    except Exception as e:
-                        print(f"[WARN] dispatch_event click failed: {e}")
-                        try:
-                            await page.eval_on_selector(submit_selector, "button => button.click()")
-                            print("[INFO] Form submitted with JS click.")
-                        except Exception as e2:
-                            print(f"[WARN] JS click failed: {e2}")
-                            try:
-                                await button.focus()
-                                await page.keyboard.press("Enter")
-                                print("[INFO] Form submitted with Enter key.")
-                            except Exception as e3:
-                                print(f"[ERROR] Keyboard Enter failed: {e3}")
-                                print("[ERROR] Failed to submit the form by any method.")
+            await page.wait_for_selector("div.standard-form__actions > button.standard-form__submit", timeout=7000)
+            await page.click("div.standard-form__actions > button.standard-form__submit")
+            print("[INFO] Form submitted.")
         except Exception as e:
-            print(f"[ERROR] Submit button not found or other error: {e}")
+            print(f"[ERROR] Submit failed: {e}")
 
-        # Wait for search results
+        # Wait for results
         try:
             await page.wait_for_selector(".vehicle-card", timeout=20000)
             cars = await page.query_selector_all(".vehicle-card")
@@ -138,10 +109,10 @@ async def main():
                     title = await car.query_selector_eval(".vehicle-title", "el => el.textContent.trim()")
                     price = await car.query_selector_eval(".price-total", "el => el.textContent.trim()")
                     print(f"🟢 {title} | {price}")
-                except Exception:
+                except:
                     continue
-        except Exception:
-            print("[WARN] No vehicles found or failed to load.")
+        except:
+            print("[WARN] No cars found.")
 
         await browser.close()
 
