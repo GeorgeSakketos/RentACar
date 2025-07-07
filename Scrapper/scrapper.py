@@ -3,9 +3,9 @@ from playwright.async_api import async_playwright
 
 # ---- CONFIG ----
 PICKUP_LOCATION = "Athens Airport"
-PICKUP_DATE = "07/07/2025"    # Format DD/MM/YYYY
+PICKUP_DATE = "07/08/2025"    # Format DD/MM/YYYY
 PICKUP_TIME = "13:30"         # Must match exactly one of the dropdown times
-DROPOFF_DATE = "12/07/2025"
+DROPOFF_DATE = "12/08/2025"
 DROPOFF_TIME = "15:00"        # Must match exactly one of the dropdown times
 
 async def select_date(page, date_selector, date_str):
@@ -113,17 +113,24 @@ async def main():
         await fill_time(page, "#time-to-display", DROPOFF_TIME)
         print("[INFO] Drop-off date/time set.")
 
-        # Submit form using locator fallback
+        # Submit form using visible "ΒΡΕΙΤΕ ΑΥΤΟΚΙΝΗΤΟ" button
         try:
-            await page.wait_for_selector("div.standard-form__actions >> button[type='submit']", timeout=7000)
-            submit_button = await page.query_selector("div.standard-form__actions >> button[type='submit']")
-            if submit_button:
-                await submit_button.click()
-                print("[INFO] Form submitted. Waiting for results...")
+            buttons = await page.query_selector_all("div.standard-form__actions button[type='submit']")
+            for btn in buttons:
+                text = (await btn.inner_text()).strip()
+                if "ΒΡΕΙΤΕ ΑΥΤΟΚΙΝΗΤΟ" in text:
+                    visible = await btn.is_visible()
+                    if visible:
+                        await btn.scroll_into_view_if_needed()
+                        await btn.hover()
+                        await btn.click()
+                        print("[INFO] Correct 'Find a Car' submit button clicked.")
+                        break
             else:
-                print("[ERROR] Submit button not found.")
+                print("[ERROR] 'ΒΡΕΙΤΕ ΑΥΤΟΚΙΝΗΤΟ' button not found or not visible.")
         except Exception as e:
-            print(f"[ERROR] Submit button not found or other error: {e}")
+            print(f"[ERROR] Failed to click submit button: {e}")
+
 
         # Wait for results
         try:
