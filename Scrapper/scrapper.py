@@ -3,10 +3,10 @@ from playwright.async_api import async_playwright
 
 # ---- CONFIG ----
 PICKUP_LOCATION = "Athens Airport"
-PICKUP_DATE = "07/07/2025"
-PICKUP_TIME = "13:30"
+PICKUP_DATE = "07/07/2025"    # Format DD/MM/YYYY
+PICKUP_TIME = "13:30"         # Must match exactly one of the dropdown times
 DROPOFF_DATE = "12/07/2025"
-DROPOFF_TIME = "10:00"
+DROPOFF_TIME = "15:00"        # Must match exactly one of the dropdown times
 
 async def select_date(page, date_selector, date_str):
     try:
@@ -38,11 +38,27 @@ async def select_date(page, date_selector, date_str):
 async def fill_time(page, time_selector, time_str):
     await page.wait_for_selector(time_selector, state="visible", timeout=7000)
     await page.click(time_selector)
-    await page.wait_for_timeout(500)
-    option_selector = f'.ui-timepicker-list li:text("{time_str}")'
-    await page.wait_for_selector(option_selector, timeout=5000)
-    await page.click(option_selector)
-    await page.wait_for_timeout(500)
+    await page.wait_for_timeout(300)
+
+    # Select only the visible timepicker list
+    time_picker_lists = await page.query_selector_all(".ui-timepicker-list")
+
+    for time_picker in time_picker_lists:
+        visible = await time_picker.is_visible()
+        if visible:
+            options = await time_picker.query_selector_all("li")
+            for option in options:
+                text = (await option.inner_text()).strip()
+                if text == time_str:
+                    await option.scroll_into_view_if_needed()
+                    await option.hover()
+                    await option.click()
+                    await page.wait_for_timeout(500)
+                    print(f"[INFO] Selected time: {time_str}")
+                    return
+            raise Exception(f"[ERROR] Time option '{time_str}' not found in dropdown.")
+
+    raise Exception("[ERROR] No visible timepicker list found.")
 
 async def main():
     async with async_playwright() as p:
@@ -52,19 +68,23 @@ async def main():
 
         await page.goto("https://www.avis.gr/")
 
+        # Accept cookie banner
         try:
-            await page.click("#consent_prompt_accept", timeout=7000)
+            await page.wait_for_selector("#consent_prompt_accept", timeout=7000)
+            await page.click("#consent_prompt_accept")
             print("[INFO] Cookie accepted.")
-        except:
-            print("[INFO] Cookie banner skipped.")
+        except Exception:
+            print("[INFO] Cookie banner not found or already accepted.")
 
+        # Close welcome popup
         try:
-            await page.click("#welcome-close", timeout=7000)
-            print("[INFO] Welcome popup closed.")
-        except:
-            print("[INFO] Welcome popup skipped.")
+            await page.wait_for_selector("#welcome-close", timeout=7000)
+            await page.click("#welcome-close")
+            print("[INFO] 'Θέλω Κράτηση' popup closed.")
+        except Exception:
+            print("[INFO] 'Θέλω Κράτηση' popup not found or already closed.")
 
-        # Pickup location autocomplete
+        # Set pickup location using autocomplete
         await page.click("#hire-search")
         await page.fill("#hire-search", "")
         await page.type("#hire-search", PICKUP_LOCATION, delay=100)
@@ -75,29 +95,35 @@ async def main():
             first_option = await page.query_selector("button.booking-widget__results__link")
             if first_option:
                 await first_option.click()
-                print("[INFO] Pickup location selected.")
+                print("[INFO] Pickup location set by selecting first autocomplete suggestion.")
             else:
+                print("[WARN] No autocomplete options found, pressing Enter as fallback.")
                 await page.keyboard.press("Enter")
-        except:
+        except Exception:
+            print("[WARN] Autocomplete options did not appear, pressing Enter as fallback.")
             await page.keyboard.press("Enter")
 
-        # Pickup date and time
+        # Pickup date/time
         await select_date(page, "#date-from-display", PICKUP_DATE)
         await fill_time(page, "#time-from-display", PICKUP_TIME)
         print("[INFO] Pickup date/time set.")
 
-        # Drop-off date and time
+        # Drop-off date/time
         await select_date(page, "#date-to-display", DROPOFF_DATE)
         await fill_time(page, "#time-to-display", DROPOFF_TIME)
         print("[INFO] Drop-off date/time set.")
 
-        # Submit button
+        # Submit form using locator fallback
         try:
-            await page.wait_for_selector("div.standard-form__actions > button.standard-form__submit", timeout=7000)
-            await page.click("div.standard-form__actions > button.standard-form__submit")
-            print("[INFO] Form submitted.")
+            await page.wait_for_selector("div.standard-form__actions >> button[type='submit']", timeout=7000)
+            submit_button = await page.query_selector("div.standard-form__actions >> button[type='submit']")
+            if submit_button:
+                await submit_button.click()
+                print("[INFO] Form submitted. Waiting for results...")
+            else:
+                print("[ERROR] Submit button not found.")
         except Exception as e:
-            print(f"[ERROR] Submit failed: {e}")
+            print(f"[ERROR] Submit button not found or other error: {e}")
 
         # Wait for results
         try:
@@ -109,10 +135,10 @@ async def main():
                     title = await car.query_selector_eval(".vehicle-title", "el => el.textContent.trim()")
                     price = await car.query_selector_eval(".price-total", "el => el.textContent.trim()")
                     print(f"🟢 {title} | {price}")
-                except:
+                except Exception:
                     continue
-        except:
-            print("[WARN] No cars found.")
+        except Exception:
+            print("[WARN] No vehicles found or failed to load.")
 
         await browser.close()
 
