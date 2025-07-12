@@ -14,19 +14,15 @@ async def select_date(page, date_selector, date_str):
     except ValueError:
         raise ValueError("Date must be in 'DD/MM/YYYY' format")
 
-    # Click to open calendar
     await page.click(date_selector)
     print(f"[INFO] Clicked {date_selector} to open calendar.")
 
-    # Wait for the calendar to be visible — this avoids the issue with invisible elements
     await page.wait_for_selector(".pika-single:visible", timeout=5000)
     print("[INFO] Calendar is visible.")
 
-    # Select year
     await page.select_option(".pika-single:visible .pika-select-year", str(year))
     await page.select_option(".pika-single:visible .pika-select-month", str(month - 1))
 
-    # Wait for correct day button
     day_selector = (
         f'.pika-single:visible button.pika-button.pika-day[data-pika-year="{year}"]'
         f'[data-pika-month="{month - 1}"][data-pika-day="{day}"]'
@@ -40,7 +36,6 @@ async def fill_time(page, time_selector, time_str):
     await page.click(time_selector)
     await page.wait_for_timeout(300)
 
-    # Select only the visible timepicker list
     time_picker_lists = await page.query_selector_all(".ui-timepicker-list")
 
     for time_picker in time_picker_lists:
@@ -59,6 +54,57 @@ async def fill_time(page, time_selector, time_str):
             raise Exception(f"[ERROR] Time option '{time_str}' not found in dropdown.")
 
     raise Exception("[ERROR] No visible timepicker list found.")
+
+async def scrape_vehicle_data(page):
+    print("[INFO] Waiting for vehicle listings to load...")
+    await page.wait_for_selector(".vehicle__inner", timeout=20000)
+
+    vehicle_cards = await page.query_selector_all(".vehicle__inner")
+    print(f"[INFO] Found {len(vehicle_cards)} vehicle cards.")
+
+    results = []
+    for card in vehicle_cards:
+        # Vehicle name inside vehicle__specs > vehicle__header > vehicle__header__inner
+        name_el = await card.query_selector(".vehicle__specs .vehicle__header .vehicle__header__inner")
+        name = (await name_el.inner_text()).strip() if name_el else "N/A"
+
+        # Vehicle image
+        img_el = await card.query_selector("img")
+        img_url = await img_el.get_attribute("data-small") if img_el else "N/A"
+
+        # Price pay on collection
+        pay_collection_el = await card.query_selector(
+            'div.vehicle__prices-option[data-payment-type="pay_collection"] p.vehicle__prices-price'
+        )
+        pay_collection_price = (await pay_collection_el.inner_text()).strip() if pay_collection_el else "N/A"
+
+        # Price pay online
+        pay_online_el = await card.query_selector(
+            'div.vehicle__prices-option.vehicle__prices-option--primary[data-payment-type="pay_online"] p.vehicle__prices-price'
+        )
+        pay_online_price = (await pay_online_el.inner_text()).strip() if pay_online_el else "N/A"
+
+        # Vehicle details
+        details_els = await card.query_selector_all("ul.vehicle__footer__features li.vehicle__footer__features__item")
+        details = [await (await li.get_property("textContent")).json_value() for li in details_els]
+
+        results.append({
+            "name": name,
+            "image_url": img_url,
+            "price_pay_collection": pay_collection_price,
+            "price_pay_online": pay_online_price,
+            "details": details,
+        })
+
+    for idx, vehicle in enumerate(results, 1):
+        print(f"\n[VEHICLE {idx}]")
+        print(f"Name: {vehicle['name']}")
+        print(f"Image URL: {vehicle['image_url']}")
+        print(f"Price (Pay on collection): {vehicle['price_pay_collection']}")
+        print(f"Price (Pay online): {vehicle['price_pay_online']}")
+        print(f"Details: {vehicle['details']}")
+
+    return results
 
 async def main():
     async with async_playwright() as p:
@@ -123,29 +169,22 @@ async def main():
                     if visible:
                         await btn.scroll_into_view_if_needed()
                         await btn.hover()
-                        await btn.click()
-                        print("[INFO] Correct 'Find a Car' submit button clicked.")
+                        # Clicking submit triggers navigation, so wait for navigation
+                        async with page.expect_navigation():
+                            await btn.click()
+                        print("[INFO] Correct 'Find a Car' submit button clicked and navigation happened.")
                         break
             else:
                 print("[ERROR] 'ΒΡΕΙΤΕ ΑΥΤΟΚΙΝΗΤΟ' button not found or not visible.")
+                await browser.close()
+                return
         except Exception as e:
             print(f"[ERROR] Failed to click submit button: {e}")
+            await browser.close()
+            return
 
-
-        # Wait for results
-        try:
-            await page.wait_for_selector(".vehicle-card", timeout=20000)
-            cars = await page.query_selector_all(".vehicle-card")
-            print(f"\n[INFO] Found {len(cars)} cars:\n")
-            for car in cars:
-                try:
-                    title = await car.query_selector_eval(".vehicle-title", "el => el.textContent.trim()")
-                    price = await car.query_selector_eval(".price-total", "el => el.textContent.trim()")
-                    print(f"🟢 {title} | {price}")
-                except Exception:
-                    continue
-        except Exception:
-            print("[WARN] No vehicles found or failed to load.")
+        # Scrape vehicle data on results page
+        await scrape_vehicle_data(page)
 
         await browser.close()
 
