@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from playwright.async_api import async_playwright
 
 PICKUP_LOCATION = "Athens Airport"
@@ -18,7 +18,7 @@ GREEK_MONTHS = {
 }
 
 async def select_date(page, button_selector, target_date):
-    # Remove overlay if present
+    # Remove overlay if present (adjust selector to your case)
     await page.evaluate("""
         const overlay = document.querySelector('#map-flyout-container');
         if (overlay) overlay.remove();
@@ -26,12 +26,25 @@ async def select_date(page, button_selector, target_date):
 
     # Open the calendar widget
     await page.click(button_selector, timeout=10000)
-    await page.wait_for_selector("section.calendar-flyout-container .ui-datepicker-calendar", timeout=5000)
 
-    for attempt in range(36):  # Try up to 3 years forward/back
-        await page.wait_for_timeout(500)  # Let calendar settle
+    # Wait until at least one calendar is visible
+    calendar_tables = await page.query_selector_all("section.calendar-flyout-container .ui-datepicker-calendar")
+    for _ in range(20):  # retry up to ~5 seconds
+        visible_found = False
+        for cal in calendar_tables:
+            if await cal.is_visible():
+                visible_found = True
+                break
+        if visible_found:
+            break
+        await page.wait_for_timeout(250)
+    else:
+        raise Exception("No visible calendar found after opening date picker.")
 
-        # Get all 3 month-year headers in the calendar widget
+    # Now loop through calendar months to find and click the target date
+    for attempt in range(36):  # try up to 3 years ahead/back
+        await page.wait_for_timeout(500)  # wait for calendar animation/settle
+
         month_elements = await page.query_selector_all(".calendar-flyout-container .ui-datepicker-month")
         year_elements = await page.query_selector_all(".calendar-flyout-container .ui-datepicker-year")
 
@@ -45,7 +58,8 @@ async def select_date(page, button_selector, target_date):
             dt = datetime.strptime(f"{english_month} {year_text}", "%B %Y")
             months_years.append(dt)
 
-        # Check if any displayed month/year matches the target
+        print("Reach Point 1")
+
         matched_index = None
         for i, dt in enumerate(months_years):
             if dt.year == target_date.year and dt.month == target_date.month:
@@ -53,43 +67,36 @@ async def select_date(page, button_selector, target_date):
                 break
 
         if matched_index is not None:
-            # Click the day within the matched calendar
-            # The calendars are in order, so find the nth calendar and click the day there
-            day_xpath = f"(//section[contains(@class,'calendar-flyout-container')]//table[contains(@class,'ui-datepicker-calendar')])[{matched_index + 1}]//a[text()='{target_date.day}']"
+            day_xpath = (
+                f"(//section[contains(@class,'calendar-flyout-container')]"
+                f"//table[contains(@class,'ui-datepicker-calendar')])[{matched_index + 1}]"
+                f"//a[text()='{target_date.day}']"
+            )
             await page.wait_for_selector(day_xpath, timeout=5000)
             await page.click(day_xpath)
-            return  # Done!
+            return  # Date selected successfully!
 
-        # If target date is after the last displayed month, go next
+        print("Reach Point 2")
+
+        # Navigate calendar forward or backward as needed
         if months_years[-1] < target_date:
             await page.click(".ui-datepicker-next")
-        # If target date is before the first displayed month, go prev
         elif months_years[0] > target_date:
             await page.click(".ui-datepicker-prev")
         else:
-            # Target date is between displayed months but not found? Possible error
             raise Exception("Target month/year is between displayed months but day not found.")
 
     raise Exception("Desired month/year not found in calendar.")
 
 async def select_time(page, button_selector, hour_id, minute_id, confirm_button_selector, target_time):
-    # Click to open the time picker
     await page.click(button_selector)
     await page.wait_for_selector(hour_id, timeout=5000)
 
-    # Parse time string
     hour, minute = target_time.split(":")
-    hour = hour.zfill(2)
-    minute = minute.zfill(2)
+    await page.select_option(hour_id, hour.zfill(2))
+    await page.select_option(minute_id, minute.zfill(2))
 
-    # Select hour and minute
-    await page.select_option(hour_id, hour)
-    await page.select_option(minute_id, minute)
-
-    # Click "Select time" button to confirm
     await page.click(confirm_button_selector)
-
-    # Wait a little to ensure UI updates
     await page.wait_for_timeout(500)
 
 async def main():
@@ -108,16 +115,16 @@ async def main():
         # Pickup location
         await page.fill("#hire-search", "")
         for c in PICKUP_LOCATION:
-            await page.type("#hire-search", c, delay=150)
-        await asyncio.sleep(2)
+            await page.type("#hire-search", c, delay=100)
+        await asyncio.sleep(1.5)
         await page.keyboard.press("Enter")
         print("✅ Pickup location.")
 
         # Dropoff location
         await page.fill("#return-search", "")
         for c in DROPOFF_LOCATION:
-            await page.type("#return-search", c, delay=150)
-        await asyncio.sleep(2)
+            await page.type("#return-search", c, delay=100)
+        await asyncio.sleep(1.5)
         await page.keyboard.press("Enter")
         print("✅ Dropoff location.")
 
@@ -128,11 +135,11 @@ async def main():
         # Pickup time
         await select_time(
             page,
-            "#pick-up-time-button",           # button to open the picker
-            "#time-from-hours",               # select element for hours
-            "#time-from-minutes",             # select element for minutes
-            "#select-pickUpTime",             # confirmation button
-            PICKUP_TIME                       # time string e.g., "10:00"
+            "#pick-up-time-button",
+            "#time-from-hours",
+            "#time-from-minutes",
+            "#select-pickUpTime",
+            PICKUP_TIME
         )
         print("✅ Pickup time selected.")
 
@@ -151,7 +158,6 @@ async def main():
         )
         print("✅ Dropoff time selected.")
 
-        # Debug
         await asyncio.sleep(10)
         await browser.close()
 
