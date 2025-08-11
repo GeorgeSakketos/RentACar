@@ -28,7 +28,7 @@ class hertzScrapper:
         await page.goto(self.url, wait_until="domcontentloaded")
         print(f"Opened {self.url}")
 
-        # Click the 'Δίκτυο' button
+        # Click the 'Network' button
         await page.wait_for_selector('button.btn-network--departure')
         await page.click('button.btn-network--departure')
         print("Clicked the 'Δίκτυο' button")
@@ -43,8 +43,19 @@ class hertzScrapper:
         await page.wait_for_selector(country_dropdown_selector)
         await page.click(country_dropdown_selector)
         print("Selected the first country option from the dropdown")
+        
+        # Fill the city input
+        await page.wait_for_selector('#departurecity')
+        await page.fill('#departurecity', self.city)
+        print(f"Filled city input with: {self.city}")
 
-                # Click once on the departure location input to show options
+        # Select first city dropdown option
+        city_dropdown_selector = '#departurecity-multiselect-options li:first-child'
+        await page.wait_for_selector(city_dropdown_selector)
+        await page.click(city_dropdown_selector)
+        print("Selected the first city option from the dropdown")
+
+        # Click once on the departure location input to show options
         await page.wait_for_selector('#departurelocation')
         await page.click('#departurelocation')
         print("Clicked departure location input, waiting for options to appear...")
