@@ -40,7 +40,7 @@ class hertzScrapper:
         await page.fill('#departurecountry', self.country)
         print(f"Filled country input with: {self.country}")
 
-        # Select first country dropdown option
+        # Select country from dropdown option
         country_dropdown_selector = '#departurecountry-multiselect-options li:first-child'
         await page.wait_for_selector(country_dropdown_selector)
         await page.click(country_dropdown_selector)
