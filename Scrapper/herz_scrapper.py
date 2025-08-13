@@ -158,7 +158,6 @@ class hertzScrapper:
             # Get the titles for both visible months
             title_elements = page.locator('.vc-title')
             titles = [t.strip() for t in await title_elements.all_text_contents()]
-            print("Visible months:", titles)
 
             if target_month_year in titles:
                 # Identify which panel (left=0, right=1) has the target month
@@ -172,8 +171,27 @@ class hertzScrapper:
                 break
 
             # Click next arrow and wait a tiny bit for panel to update
-            await page.click('.vc-arrow.vc-next')
-            await page.wait_for_timeout(200)  # small delay to let calendar update
+            await page.click('.vc-arrow.vc-next', force=True)
+            await page.wait_for_timeout(25)  # small delay to let calendar update
+            
+        # --- Time selection ---
+        target_hour, target_minute = self.pickup_time.split(':')  # e.g., "14:30"
+
+        # Wait for the hour dropdown to be ready
+        await page.wait_for_selector('#hourdeparturedesktop')
+        await page.select_option('#hourdeparturedesktop', value=str(int(target_hour)*100))  # convert "14" -> "1400"
+        print(f"Selected hour: {target_hour}")
+
+        # Wait for the minute dropdown to be ready
+        await page.wait_for_selector('#minutesdeparturedesktop')
+        await page.select_option('#minutesdeparturedesktop', value=str(int(target_minute)))  # e.g., "30"
+        print(f"Selected minute: {target_minute}")
+        
+        # --- Confirm date & time ---
+        await page.wait_for_selector('button.btn.btn-primary.btn-full-width')
+        await page.click('button.btn.btn-primary.btn-full-width')
+        print("Confirmed date and time selection")
+
 
         await asyncio.sleep(self.duration)
         await browser.close()
