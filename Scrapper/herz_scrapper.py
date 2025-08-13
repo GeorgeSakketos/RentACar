@@ -3,7 +3,7 @@ from datetime import datetime
 from playwright.async_api import async_playwright
 
 class hertzScrapper:
-    def __init__(self, url: str, country: str, city: str, pickup_date: str, pickup_time: str, duration: int = 10, 
+    def __init__(self, url: str, country: str, city: str, pickup_date: str, pickup_time: str, dropoff_date: str, dropoff_time: str, duration: int = 10, 
                  browser_type: str = "chromium", different_drop_off: bool = False):
         self.url = url
         self.country = country
@@ -11,6 +11,8 @@ class hertzScrapper:
         self.pickup_date = pickup_date  # dd/mm/yyyy
         self.pickup_time = pickup_time  # HH:MM in 15-min increments
         self.duration = duration    # duration before timing out
+        self.dropoff_date = dropoff_date    # dd/mm/yyyy
+        self.dropoff_time = dropoff_time    # HH:MM in 15-min increments
         self.browser_type = browser_type
         self.different_drop_off = different_drop_off
         self.playwright = None
@@ -140,7 +142,7 @@ class hertzScrapper:
         #                 print(f"Selected drop-off location: {chosen_dropoff}")
         #                 break
         
-        # Click to open date picker
+        # Click to open pickup date picker
         await page.wait_for_selector('#dropdownMenudeparture')
         await page.click('#dropdownMenudeparture')
         print("Opened the pick-up date/time dropdown widget")
@@ -191,7 +193,19 @@ class hertzScrapper:
         await page.wait_for_selector('button.btn.btn-primary.btn-full-width')
         await page.click('button.btn.btn-primary.btn-full-width')
         print("Confirmed date and time selection")
+        
+        # Click to open dropoff date picker
+        await page.wait_for_selector('#dropdownMenureturn')
+        print("Opened the drop-off date/time dropdown widget")
+        
+        # --- Date selection ---
+        target_day, target_month, target_year = self.dropoff_date.split('/')
+        month_names = ["January", "February", "March", "April", "May", "June",
+                    "July", "August", "September", "October", "November", "December"]
+        target_month_year = f"{month_names[int(target_month)-1]} {target_year}"
 
+        # Wait for calendars to render
+        await page.wait_for_selector('.vc-title')
 
         await asyncio.sleep(self.duration)
         await browser.close()
