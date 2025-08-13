@@ -51,6 +51,9 @@ class hertzScrapper:
         # Pick-up / Drop-off date & time
         await self.select_pickup_datetime(page)
         await self.select_dropoff_datetime(page)
+        
+        # Search Results
+        await self.search_for_results(page)
 
         await asyncio.sleep(self.duration)
         await browser.close()
@@ -179,33 +182,40 @@ class hertzScrapper:
 
     async def select_pickup_datetime(self, page):
         await self.select_date_time(
-            page,
-            dropdown_selector='#dropdownMenudeparture',
-            target_date=self.pickup_date,
-            target_time=self.pickup_time,
-            hour_selector='#hourdeparturedesktop',
-            minute_selector='#minutesdeparturedesktop',
-            widget_click=True,
-            label="Pick-up"
-        )
+        page,
+        dropdown_selector='#dropdownMenudeparture',
+        calendar_selector='.dropdown-menu.show',
+        target_date=self.pickup_date,
+        target_time=self.pickup_time,
+        hour_selector='#hourdeparturedesktop',
+        minute_selector='#minutesdeparturedesktop',
+        widget_click=False,
+        label="Pick-up"
+    )
+
+        # Wait for pickup calendar to close & drop-off to open
+        await page.wait_for_selector('#hourreturndesktop', timeout=5000)
+        print("Drop-off calendar is now active")
 
     async def select_dropoff_datetime(self, page):
         await self.select_date_time(
-            page,
-            dropdown_selector='#dropdownMenureturn',
-            target_date=self.dropoff_date,
-            target_time=self.dropoff_time,
-            hour_selector='#hourreturndesktop',
-            minute_selector='#minutesreturndesktop',
-            widget_click=False,
-            label="Drop-off"
-        )
+        page,
+        dropdown_selector='#dropdownMenureturn',
+        calendar_selector='.dropdown-menu.dropdown-menu-end.show',
+        target_date=self.dropoff_date,
+        target_time=self.dropoff_time,
+        hour_selector='#hourreturndesktop',
+        minute_selector='#minutesreturndesktop',
+        widget_click=True,
+        label="Drop-off"
+    )
 
-    async def select_date_time(self, page, dropdown_selector, target_date, target_time,
+    async def select_date_time(self, page, dropdown_selector, calendar_selector, target_date, target_time,
                                hour_selector, minute_selector, widget_click, label=""):
         # Open dropdown
         await page.wait_for_selector(dropdown_selector)
-        if (widget_click):
+        await page.click(dropdown_selector)
+        if widget_click:
             await page.click(dropdown_selector)
         print(f"{label}: Opened date/time dropdown")
 
@@ -215,20 +225,24 @@ class hertzScrapper:
                        "July", "August", "September", "October", "November", "December"]
         target_month_year = f"{month_names[int(month)-1]} {year}"
 
+        # Scope calendar inside dropdown menu
+        calendar_container = page.locator(calendar_selector)
+
         # Wait for calendar to render
-        await page.wait_for_selector('.vc-title')
+        await calendar_container.locator('.vc-title').first.wait_for()
 
         while True:
-            titles = [t.strip() for t in await page.locator('.vc-title').all_text_contents()]
+            titles = [t.strip() for t in await calendar_container.locator('.vc-title').all_text_contents()]
             if target_month_year in titles:
                 index = titles.index(target_month_year)
-                panel = page.locator('.vc-pane').nth(index)
+                panel = calendar_container.locator('.vc-pane').nth(index)
                 day_locator = panel.locator(f'.vc-day:not(.is-disabled):has-text("{int(day)}")')
                 await day_locator.first.click()
                 print(f"{label}: Selected day {day} in {target_month_year}")
                 break
 
-            await page.click('.vc-arrow.vc-next', force=True)
+            next_arrow = calendar_container.locator('.vc-arrow.vc-next')
+            await next_arrow.first.click(force=True)
             await page.wait_for_timeout(25)
 
         # Time selection
@@ -242,6 +256,12 @@ class hertzScrapper:
         print(f"{label}: Selected minute {minute}")
 
         # Confirm
-        await page.wait_for_selector('button.btn.btn-primary.btn-full-width')
-        await page.click('button.btn.btn-primary.btn-full-width')
+        await page.wait_for_selector(f'{calendar_selector} button.btn.btn-primary.btn-full-width')
+        await page.click(f'{calendar_selector} button.btn.btn-primary.btn-full-width')
         print(f"{label}: Confirmed date and time selection")
+        
+    async def search_for_results(self, page):
+        # Click the search button
+        await page.wait_for_selector('button.btn.btn-outline-primary.btn-full-width.submit-button')
+        await page.click('button.btn.btn-outline-primary.btn-full-width.submit-button')
+        print("Clicked 'Find your vehicle' button")
