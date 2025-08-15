@@ -3,21 +3,19 @@ from datetime import datetime
 from playwright.async_api import async_playwright
 
 class hertzScrapper:
-    def __init__(self, url: str, country: str, city: str, pickup_date: str, pickup_time: str, dropoff_date: str, dropoff_time: str, duration: int = 10, 
+    def __init__(self, url: str, country: str, city: str, pickup_datetime: datetime, dropoff_datetime: datetime, duration: int = 10, 
                  browser_type: str = "chromium", different_drop_off: bool = False):
         self.url = url
         self.country = country
         self.city = city
-        self.pickup_date = pickup_date  # dd/mm/yyyy
-        self.pickup_time = pickup_time  # HH:MM in 15-min increments
+        self.pickup_datetime = pickup_datetime  # dd/mm/yyyy
         self.duration = duration    # duration before timing out
-        self.dropoff_date = dropoff_date    # dd/mm/yyyy
-        self.dropoff_time = dropoff_time    # HH:MM in 15-min increments
+        self.dropoff_datetime = dropoff_datetime    # dd/mm/yyyy
         self.browser_type = browser_type
         self.different_drop_off = different_drop_off
         self.playwright = None
 
-    async def start(self):
+    async def start(self):  
         # Safeguard Check
         await self.safeguard()
         
@@ -64,27 +62,56 @@ class hertzScrapper:
         print(f"Closed {self.url}")
         await self.playwright.stop()
         
-    async def _validate_time(self, time_str: str, label: str) -> tuple[int, str]:
-        """Validate time format HH:MM with allowed values."""
+    async def _validate_time(self, time_datetime: datetime, label: str):
+        # Validate time format HH:MM with allowed values.
         try:
-            hour_str, minute_str = time_str.split(":")
+            hour = time_datetime.hour
+            minute = time_datetime.minute
         except ValueError:
-            raise ValueError(f"{label}: Invalid format '{time_str}'. Expected HH:MM.")
+            raise ValueError(f"{label}: Invalid format '{time_datetime}'. Expected HH:MM.")
 
-        # Validate hour
-        if not hour_str.isdigit() or not (0 <= int(hour_str) <= 23):
-            raise ValueError(f"{label}: Invalid hour '{hour_str}'. Must be between 00 and 23.")
+        # Validate Time
+        allowed_minutes = [00, 15, 30, 45]
+        current_datetime = datetime.now()
+        if (time_datetime.time() < current_datetime.time() and time_datetime.date() == current_datetime.date()):
+            for cur_minute in allowed_minutes:
+                if (cur_minute > current_datetime.minute):
+                    raise ValueError(f"{label}: Invalid time {time_datetime.hour}:{time_datetime.minute}. Time must at least be {current_datetime.hour}:{cur_minute}")
+                    break
 
-        # Validate minute
-        allowed_minutes = {"00", "15", "30", "45"}
-        if minute_str not in allowed_minutes:
-            raise ValueError(f"{label}: Invalid minute '{minute_str}'. Must be one of {sorted(allowed_minutes)}.")
+        # Validate Hour
+        if not (isinstance(hour, (int))) or not (0 <= int(hour) <= 23):
+            raise ValueError(f"{label}: Invalid hour '{hour}'. Must be between 00 and 23.")
 
-        return int(hour_str), minute_str
+        # Validate Minute
+        if minute not in allowed_minutes:
+            raise ValueError(f"{label}: Invalid minute '{minute}'. Must be one of {sorted(allowed_minutes)}.")
+        
+    async def _validate_date(self, time_datetime: datetime, label: str):
+        pass
+        # Validate time format HH:MM with allowed values.
+        try:
+            day = time_datetime.day
+            month = time_datetime.month
+            year = time_datetime.year
+        except ValueError:
+            raise ValueError(f"{label}: Invalid format '{time_datetime}'. Expected DD/MM/YYYY.")
+        
+        # Validate Day
+        current_datetime = datetime.now()
+        today = current_datetime.date()
+        if (time_datetime.date() < today):
+            raise ValueError(f"{label}: Invalid date '{day}/{month}/{year}'. Date must be greater or equal to {today.day}/{today.month}/{today.year}")
+        
         
     async def safeguard(self):
-        await self._validate_time(self.pickup_time, "Pick-Up")
-        await self._validate_time(self.dropoff_time, "Drop-Off")
+        # Validate Time
+        await self._validate_time(self.pickup_datetime, "Pick-Up")
+        await self._validate_time(self.dropoff_datetime, "Drop-Off")
+        
+        # # Validate Date
+        await self._validate_date(self.pickup_datetime, "Pick-Up")
+        await self._validate_date(self.dropoff_datetime, "Drop-Off")
         
     async def accept_cookies(self, page):
         # Check for cookies banner and accept it if present.
@@ -211,8 +238,7 @@ class hertzScrapper:
         page,
         dropdown_selector='#dropdownMenudeparture',
         calendar_selector='.dropdown-menu.show',
-        target_date=self.pickup_date,
-        target_time=self.pickup_time,
+        target_datetime=self.pickup_datetime,
         hour_selector='#hourdeparturedesktop',
         minute_selector='#minutesdeparturedesktop',
         widget_click=False,
@@ -228,15 +254,14 @@ class hertzScrapper:
         page,
         dropdown_selector='#dropdownMenureturn',
         calendar_selector='.dropdown-menu.dropdown-menu-end.show',
-        target_date=self.dropoff_date,
-        target_time=self.dropoff_time,
+        target_datetime=self.dropoff_datetime,
         hour_selector='#hourreturndesktop',
         minute_selector='#minutesreturndesktop',
         widget_click=True,
         label="Drop-off"
     )
 
-    async def select_date_time(self, page, dropdown_selector, calendar_selector, target_date, target_time,
+    async def select_date_time(self, page, dropdown_selector, calendar_selector, target_datetime,
                                hour_selector, minute_selector, widget_click, label=""):
         # Open dropdown
         await page.wait_for_selector(dropdown_selector)
@@ -246,7 +271,10 @@ class hertzScrapper:
         print(f"{label}: Opened date/time dropdown")
 
         # Split date
-        day, month, year = target_date.split('/')
+        day = target_datetime.day
+        month = target_datetime.month
+        year = target_datetime.year
+        
         month_names = ["January", "February", "March", "April", "May", "June",
                        "July", "August", "September", "October", "November", "December"]
         target_month_year = f"{month_names[int(month)-1]} {year}"
@@ -271,7 +299,8 @@ class hertzScrapper:
             await next_arrow.first.click(force=True)
             await page.wait_for_timeout(25)
 
-        hour, minute = target_time.split(':')
+        hour = target_datetime.hour
+        minute = target_datetime.minute
 
         # Time selection 
         await page.wait_for_selector(hour_selector)
