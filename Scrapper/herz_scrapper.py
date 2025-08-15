@@ -18,6 +18,10 @@ class hertzScrapper:
         self.playwright = None
 
     async def start(self):
+        # Safeguard Check
+        await self.safeguard()
+        
+        # Create Page
         self.playwright = await async_playwright().start()
 
         if self.browser_type == "chromium":
@@ -59,6 +63,28 @@ class hertzScrapper:
         await browser.close()
         print(f"Closed {self.url}")
         await self.playwright.stop()
+        
+    async def _validate_time(self, time_str: str, label: str) -> tuple[int, str]:
+        """Validate time format HH:MM with allowed values."""
+        try:
+            hour_str, minute_str = time_str.split(":")
+        except ValueError:
+            raise ValueError(f"{label}: Invalid format '{time_str}'. Expected HH:MM.")
+
+        # Validate hour
+        if not hour_str.isdigit() or not (0 <= int(hour_str) <= 23):
+            raise ValueError(f"{label}: Invalid hour '{hour_str}'. Must be between 00 and 23.")
+
+        # Validate minute
+        allowed_minutes = {"00", "15", "30", "45"}
+        if minute_str not in allowed_minutes:
+            raise ValueError(f"{label}: Invalid minute '{minute_str}'. Must be one of {sorted(allowed_minutes)}.")
+
+        return int(hour_str), minute_str
+        
+    async def safeguard(self):
+        await self._validate_time(self.pickup_time, "Pick-Up")
+        await self._validate_time(self.dropoff_time, "Drop-Off")
         
     async def accept_cookies(self, page):
         # Check for cookies banner and accept it if present.
@@ -245,8 +271,9 @@ class hertzScrapper:
             await next_arrow.first.click(force=True)
             await page.wait_for_timeout(25)
 
-        # Time selection
         hour, minute = target_time.split(':')
+
+        # Time selection 
         await page.wait_for_selector(hour_selector)
         await page.select_option(hour_selector, value=str(int(hour)*100))
         print(f"{label}: Selected hour {hour}")

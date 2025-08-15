@@ -10,7 +10,7 @@ async def main():
     dropoff_date = "12/02/2026" # dd/mm/yyyy
     dropoff_time = "11:15"      # Intervals of 15 minutes
     different_drop_off = True
-    manager = hertzScrapper(hertz_url, country, city, pickup_date, pickup_time, dropoff_date, dropoff_time, duration=5, browser_type="chromium", different_drop_off=different_drop_off)
+    manager = hertzScrapper(hertz_url, country, city, pickup_date, pickup_time, dropoff_date, dropoff_time, duration=30, browser_type="chromium", different_drop_off=different_drop_off)
     await manager.start()
 
 if __name__ == "__main__":
