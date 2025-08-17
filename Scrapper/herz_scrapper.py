@@ -53,6 +53,11 @@ class hertzScrapper:
         
         # Search Results
         await self.search_for_results(page)
+        
+        # Scrape Data and Print
+        results = await self.scrape_results(page)
+        for result in results:
+            print(result)
 
         await asyncio.sleep(self.duration)
         await browser.close()
@@ -267,3 +272,70 @@ class hertzScrapper:
         await page.wait_for_selector('button.btn.btn-outline-primary.btn-full-width.submit-button')
         await page.click('button.btn.btn-outline-primary.btn-full-width.submit-button')
         print("Clicked 'Find your vehicle' button")
+        
+    async def scrape_results(self, page):
+        # Wait for the visible fleet grid
+        await page.wait_for_selector('.s-booking-fleet__grid:visible', timeout=20000)
+        grid = page.locator('.s-booking-fleet__grid:visible').first
+
+        # Cards only inside the visible grid, and only visible ones
+        all_nodes_in_grid = grid.locator('.b-vehicle__body')
+        visible_cards = grid.locator('.b-vehicle__body:visible')
+
+        total_nodes = await all_nodes_in_grid.count()
+        visible_count = await visible_cards.count()
+        print(f"Car nodes in DOM (in grid): {total_nodes}, visible cards counted: {visible_count}")
+
+        cars = []
+        seen_titles = set()
+
+        while True:
+            # Wait for grid and visible car cards
+            await page.wait_for_selector('.s-booking-fleet__grid')
+            visible_cards = page.locator('.b-vehicle__body')
+            visible_count = await visible_cards.count()
+
+            for i in range(visible_count):
+                card = visible_cards.nth(i)
+
+                # Car name (strip "or similar")
+                raw_title = await card.locator('.b-vehicle__title').text_content()
+                title = (raw_title or '').replace('or similar', '').strip() or 'Unknown'
+
+                # De-dup
+                if title in seen_titles:
+                    continue
+                seen_titles.add(title)
+
+                # Category
+                li_elements = await card.locator('.b-vehicle__groups li').all()
+                category = 'Unknown'
+                for li in li_elements:
+                    attrs = await li.get_attribute("class")
+                    data_toggle = await li.get_attribute("data-bs-toggle")
+
+                    if data_toggle or (attrs and "separator" in attrs):
+                        continue
+
+                    text = (await li.text_content() or "").strip()
+                    if text:
+                        category = text
+                        break
+
+                cars.append({
+                    'name': title,
+                    'category': category,
+                })
+
+            # Check if "Next" button is disabled
+            next_button = page.locator('button.b-pagination__btn--next')
+            if not await next_button.is_enabled():
+                print("Reached last page of results.")
+                break
+
+            # Go to next page
+            await next_button.click()
+            await page.wait_for_timeout(2000)  # wait for results to reload
+
+        print(f"Scraped {len(cars)} cars")
+        return cars
