@@ -321,10 +321,19 @@ class hertzScrapper:
                     if text:
                         category = text
                         break
+                    
+                # Passengers
+                passenger_locator = card.locator('.pair.bold i.icon-passenger')
+                passengers = "Unknown"
+                if await passenger_locator.count() > 0:
+                    passengers_text = await passenger_locator.nth(0).locator("xpath=..").text_content()
+                    if passengers_text:
+                        passengers = passengers_text.strip().replace("\n", " ")
 
                 cars.append({
                     'name': title,
                     'category': category,
+                    'passengers': passengers,
                 })
 
             # Check if "Next" button is disabled
