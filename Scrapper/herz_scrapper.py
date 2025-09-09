@@ -1,19 +1,25 @@
 import asyncio
+import re
 from datetime import datetime
 from playwright.async_api import async_playwright
+from timeout import Timeout
 
 class hertzScrapper:
-    def __init__(self, url: str, country: str, city: str, pickup_datetime: datetime, dropoff_datetime: datetime, duration: int = 10, 
-                 browser_type: str = "chromium", different_drop_off: bool = False):
+    def __init__(self, url: str, country: str, city: str, pickup_datetime: datetime,
+                 dropoff_datetime: datetime, duration: int = 5, browser_type: str = "chromium",
+                 different_drop_off: bool = False, max_restarts: int = 2):
         self.url = url
         self.country = country
         self.city = city
-        self.pickup_datetime = pickup_datetime  # dd/mm/yyyy
-        self.duration = duration    # duration before timing out
-        self.dropoff_datetime = dropoff_datetime    # dd/mm/yyyy
+        self.pickup_datetime = pickup_datetime
+        self.duration = duration
+        self.dropoff_datetime = dropoff_datetime
         self.browser_type = browser_type
         self.different_drop_off = different_drop_off
         self.playwright = None
+        
+        # Timeout Handler
+        self.timeout_handler = Timeout()
 
     async def start(self):
         # Create Page
@@ -35,27 +41,27 @@ class hertzScrapper:
         print(f"Opened {self.url}")
 
         # Accept cookies first
-        await self.accept_cookies(page)
+        await self.timeout_handler.retry_step("Accept cookies", self.accept_cookies, page)
 
         # Network mode
-        await self.change_to_network_mode(page)
+        await self.timeout_handler.retry_step("Change to network mode", self.change_to_network_mode, page)
 
         # Country / City selection
-        await self.select_country(page)
-        await self.select_city(page)
+        await self.timeout_handler.retry_step("Select country", self.select_country, page)
+        await self.timeout_handler.retry_step("Select city", self.select_city, page)
 
         # Pickup / Dropoff locations
-        await self.select_pickup_and_dropoff_location(page)
+        await self.timeout_handler.retry_step("Select pickup/dropoff", self.select_pickup_and_dropoff_location, page)
 
         # Pick-up / Drop-off date & time
-        await self.select_pickup_datetime(page)
-        await self.select_dropoff_datetime(page)
+        await self.timeout_handler.retry_step("Select pickup datetime", self.select_pickup_datetime, page)
+        await self.timeout_handler.retry_step("Select dropoff datetime", self.select_dropoff_datetime, page)
         
         # Search Results
-        await self.search_for_results(page)
+        await self.timeout_handler.retry_step("Search for results", self.search_for_results, page)
         
         # Scrape Data and Print
-        results = await self.scrape_results(page)
+        results = await self.timeout_handler.retry_step("Scrape results", self.scrape_results, page)
         for result in results:
             print(result)
 
@@ -329,11 +335,22 @@ class hertzScrapper:
                     passengers_text = await passenger_locator.nth(0).locator("xpath=..").text_content()
                     if passengers_text:
                         passengers = passengers_text.strip().replace("\n", " ")
+                        
+                # Suitcases
+                suitcase_locator = card.locator('.icon-suitcase')
+                suitcases = "Unknown"
+                if await suitcase_locator.count() > 0:
+                    # get the sibling span next to <i class="icon-suitcase">
+                    suitcase_text = await suitcase_locator.nth(0).evaluate("el => el.nextElementSibling?.textContent")
+                    if suitcase_text:
+                        match = re.search(r"\d+", suitcase_text)
+                        suitcases = int(match.group()) if match else "Unknown"
 
                 cars.append({
                     'name': title,
                     'category': category,
                     'passengers': passengers,
+                    'suitcases': suitcases,
                 })
 
             # Check if "Next" button is disabled
